@@ -93,7 +93,6 @@ class OutboundView(ttk.Frame):
         fields = [
             ("出库档口", "出库档口", "combobox"),
             ("快递单号", "快递单号", "entry"),
-            ("出库数量", "出库数量", "entry"),
         ]
         self.entries = {}
         for i, (lt, fn, wt) in enumerate(fields):
@@ -114,7 +113,7 @@ class OutboundView(ttk.Frame):
                 self.entries[fn] = e
                 
         # 添加提示信息
-        tip_label = ttk.Label(frm, text="提示：出库数量为空时将全部出库", foreground="gray")
+        tip_label = ttk.Label(frm, text="提示：双击行的“出库数量”列可编辑每行数量", foreground="gray")
         tip_label.grid(row=len(fields), column=0, columnspan=2, pady=5)
 
         ttk.Button(self, text="提交出库", command=self.submit).pack(pady=10)
@@ -278,7 +277,6 @@ class OutboundView(ttk.Frame):
 
         counter = self.entries["出库档口"].get()
         tracking_number = self.entries["快递单号"].get()
-        outbound_quantity_str = self.entries["出库数量"].get().strip()
         
         if not counter:
             messagebox.showwarning("提示", "请选择出库档口！")
@@ -287,58 +285,39 @@ class OutboundView(ttk.Frame):
             messagebox.showwarning("提示", "请输入快递单号！")
             return
 
-        # 2) 处理出库
+        # 2) 处理出库（仅使用每行出库数量）
         cnt = 0
-        # 如果底部输入框有值，使用统一数量（兼容旧逻辑）
-        if outbound_quantity_str:
-            try:
-                unified_qty = int(outbound_quantity_str)
-                if unified_qty <= 0:
-                    messagebox.showwarning("提示", "出库数量必须大于0！")
-                    return
-                for order, _ in order_quantities:
-                    if self.controller.handle_partial_outbound(order, unified_qty, tracking_number, counter):
-                        cnt += 1
-                    else:
-                        messagebox.showwarning("提示", f"单号 {order} 出库失败，可能是数量不足或数据错误！")
-                        return
-            except ValueError:
-                messagebox.showwarning("提示", "出库数量必须是有效的整数！")
-                return
-        else:
-            # 使用每行单独设置的数量
-            for order, qty in order_quantities:
-                # 获取剩余数量
-                remaining_qty = None
-                for it in self.checked:
-                    if self.tree.exists(it) and self.tree.set(it, "单号") == order:
-                        remaining_qty_str = self.tree.set(it, "剩余数量")
-                        try:
-                            remaining_qty = int(remaining_qty_str)
-                        except (ValueError, TypeError):
-                            pass
-                        break
-                
-                # 判断是全部出库还是分数量出库
-                if remaining_qty and qty >= remaining_qty:
-                    # 全部出库
-                    updated = {
-                        '出库状态': '全部出库',
-                        '出库档口': counter,
-                        '快递单号': tracking_number,
-                        '剩余数量': '0',
-                        '剩余价值': '0.00',
-                        '利润': ''
-                    }
-                    if self.controller.model.update_record(order, updated):
-                        cnt += 1
+        for order, qty in order_quantities:
+            # 获取剩余数量
+            remaining_qty = None
+            for it in self.checked:
+                if self.tree.exists(it) and self.tree.set(it, "单号") == order:
+                    remaining_qty_str = self.tree.set(it, "剩余数量")
+                    try:
+                        remaining_qty = int(remaining_qty_str)
+                    except (ValueError, TypeError):
+                        pass
+                    break
+            # 判断是全部出库还是分数量出库
+            if remaining_qty and qty >= remaining_qty:
+                # 全部出库
+                updated = {
+                    '出库状态': '全部出库',
+                    '出库档口': counter,
+                    '快递单号': tracking_number,
+                    '剩余数量': '0',
+                    '剩余价值': '0.00',
+                    '利润': ''
+                }
+                if self.controller.model.update_record(order, updated):
+                    cnt += 1
+            else:
+                # 分数量出库
+                if self.controller.handle_partial_outbound(order, qty, tracking_number, counter):
+                    cnt += 1
                 else:
-                    # 分数量出库
-                    if self.controller.handle_partial_outbound(order, qty, tracking_number, counter):
-                        cnt += 1
-                    else:
-                        messagebox.showwarning("提示", f"单号 {order} 出库失败，可能是数量不足或数据错误！")
-                        return
+                    messagebox.showwarning("提示", f"单号 {order} 出库失败，可能是数量不足或数据错误！")
+                    return
 
         messagebox.showinfo("提示", f"共处理出库 {cnt} 条记录")
 

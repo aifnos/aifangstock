@@ -11,6 +11,10 @@ def main():
     # 应用初始化
     settings_model = SettingsModel()
     active_table = settings_model.get_active_table()
+    if not active_table:
+        settings_model.add_table('default')
+        settings_model.set_active_table('default')
+        active_table = 'default'
     model = InventoryModel(active_table)
     
     # 创建根窗口并传递给控制器和视图

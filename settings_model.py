@@ -42,6 +42,9 @@ class SettingsModel:
                 'inbound_commission': 0,
                 'inbound_quantity': 1,
                 'inbound_price': 0,
+                'document_maker': '管理员',
+                'document_code_prefix': 'JHD',
+                'document_title': '进货单',
                 'outbound_quantity_mode': 'one'  # 'one' 或 'all'
             }
         }
@@ -57,6 +60,9 @@ class SettingsModel:
             self.settings['field_defaults'] = {
                 'inbound_commission': 0,
                 'inbound_quantity': 1,
+                'document_maker': '管理员',
+                'document_code_prefix': 'JHD',
+                'document_title': '进货单',
                 'outbound_quantity_mode': 'one'
             }
             self._save_settings()
@@ -261,3 +267,21 @@ class SettingsModel:
         """设置出库数量默认值模式：'one'（一件）或 'all'（全部库存）"""
         if mode in ['one', 'all']:
             self.set_field_default('outbound_quantity_mode', mode)
+
+    def get_document_maker_default(self):
+        return self.get_field_default('document_maker', '管理员')
+
+    def set_document_maker_default(self, value):
+        self.set_field_default('document_maker', value)
+
+    def get_document_code_prefix_default(self):
+        return self.get_field_default('document_code_prefix', 'JHD')
+
+    def set_document_code_prefix_default(self, value):
+        self.set_field_default('document_code_prefix', value)
+
+    def get_document_title_default(self):
+        return self.get_field_default('document_title', '进货单')
+
+    def set_document_title_default(self, value):
+        self.set_field_default('document_title', value)

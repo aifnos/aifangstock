@@ -37,10 +37,13 @@ class DataView(ttk.Frame):
         self.ent_cond.bind("<Return>", lambda e: self.exec_q())
 
         ttk.Button(self, text="查询", command=self.exec_q).grid(row=0, column=4, padx=5, pady=5)
+        self.btn_invoice = ttk.Button(self, text="生成票据", command=self.generate_invoice)
+        self.btn_invoice.grid(row=0, column=5, padx=5, pady=5)
+        self.btn_invoice.state(["disabled"]) 
         self.on_q()
 
         # 结果表格
-        self.tree = ttk.Treeview(self, show="headings")
+        self.tree = ttk.Treeview(self, show="headings", selectmode="extended")
         self.tree.grid(row=1, column=0, columnspan=5, sticky="nsew")
         # 仅"出库状态"列上色
         self.tree.tag_configure('outbound', foreground='green')
@@ -68,7 +71,9 @@ class DataView(ttk.Frame):
             lambda e: self.filter_canvas.configure(scrollregion=self.filter_canvas.bbox("all"))
         )
         self.filter_entries = {}
+        self.row_items = {}
         self.create_filter_row()
+        self.update_invoice_button_state()
 
         # 指标显示区
         self.lbl_sold_profit      = ttk.Label(self, text="卖出总利润: 0.00")
@@ -170,6 +175,7 @@ class DataView(ttk.Frame):
 
         # 重建表头
         self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
         self.tree["columns"] = self.columns
         self.sort_states = {c: True for c in self.columns}
         for c in self.columns:
@@ -187,13 +193,15 @@ class DataView(ttk.Frame):
                     vals.append(d.get(c,""))
             status = d.get("出库状态","")
             tag = "outbound" if status == "卖出" else "inbound"
-            self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            self.row_items[iid] = d
 
         # 重建筛选区
         self.create_filter_row()
 
         # 更新指标
         self.update_metrics()
+        self.update_invoice_button_state()
     
     def refresh_columns(self):
         """刷新表格列显示配置"""
@@ -212,6 +220,7 @@ class DataView(ttk.Frame):
         
         # 重建表头
         self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
         self.tree["columns"] = self.columns
         self.sort_states = {c: True for c in self.columns}
         for c in self.columns:
@@ -228,7 +237,8 @@ class DataView(ttk.Frame):
                     vals.append(d.get(c,""))
             status = d.get("出库状态","")
             tag = "outbound" if status == "卖出" else "inbound"
-            self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            self.row_items[iid] = d
         
         # 重建筛选区
         self.create_filter_row()
@@ -254,6 +264,7 @@ class DataView(ttk.Frame):
             ), reverse=True)
         # 重绘行
         self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
         for d in self.full:
             vals = []
             for c in self.columns:
@@ -264,7 +275,8 @@ class DataView(ttk.Frame):
                     vals.append(d.get(c,""))
             status = d.get("出库状态","")
             tag = "outbound" if status == "卖出" else "inbound"
-            self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            self.row_items[iid] = d
         # 重新应用筛选条件
         self.apply_filters()
 
@@ -281,6 +293,7 @@ class DataView(ttk.Frame):
                 filtered.append(d)
         self.full = filtered
         self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
         for d in self.full:
             vals = []
             for c in self.columns:
@@ -291,8 +304,10 @@ class DataView(ttk.Frame):
                     vals.append(d.get(c,""))
             status = d.get("出库状态","")
             tag = "outbound" if status == "卖出" else "inbound"
-            self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            self.row_items[iid] = d
         self.update_metrics()
+        self.update_invoice_button_state()
 
     def clear_filters(self):
         for e in self.filter_entries.values():
@@ -307,6 +322,7 @@ class DataView(ttk.Frame):
             self.full.sort(key=lambda x: x.get(col,""), reverse=not asc)
         self.sort_states[col] = not asc
         self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
         for d in self.full:
             vals = []
             for c in self.columns:
@@ -317,7 +333,8 @@ class DataView(ttk.Frame):
                     vals.append(d.get(c,""))
             status = d.get("出库状态","")
             tag = "outbound" if status == "卖出" else "inbound"
-            self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
+            self.row_items[iid] = d
 
     def _parse_datetime(self, date_str):
         """解析多种格式的日期字符串"""
@@ -335,6 +352,283 @@ class DataView(ttk.Frame):
         
         # 如果所有格式都失败，返回一个很早的日期作为默认值
         return datetime(1900, 1, 1)
+    
+    def update_invoice_button_state(self):
+        try:
+            selected_iids = list(self.tree.selection())
+            if selected_iids:
+                selected_data = [self.row_items[i] for i in selected_iids if i in self.row_items]
+            else:
+                selected_data = list(self.full) if hasattr(self, 'full') else []
+            if not selected_data:
+                self.btn_invoice.state(["disabled"]) 
+                return
+            suppliers = {d.get('货商姓名','').strip() for d in selected_data if d.get('货商姓名','').strip()}
+            if len(suppliers) == 1:
+                self.btn_invoice.state(["!disabled"]) 
+            else:
+                self.btn_invoice.state(["disabled"]) 
+        except Exception:
+            self.btn_invoice.state(["disabled"]) 
+
+    def generate_invoice(self):
+        import uuid
+        from datetime import datetime as _dt
+        maker = self.controller.settings_model.get_document_maker_default()
+        today = _dt.now().strftime('%Y-%m-%d')
+        code = 'JHD' + _dt.now().strftime('%Y%m%d') + uuid.uuid4().hex[:6]
+
+        selected_iids = list(self.tree.selection())
+        data_src = [self.row_items[i] for i in selected_iids if i in self.row_items] if selected_iids else list(self.full)
+        items = []
+        total_amount = 0.0
+        total_qty = 0
+        for i, d in enumerate(data_src, 1):
+            name = d.get('商品名称','')
+            courier_no = d.get('入库快递单号','')
+            try:
+                qty = int(d.get('商品数量','') or 0)
+            except:
+                qty = 0
+            try:
+                buy_price = float(d.get('买价','') or 0)
+            except:
+                buy_price = 0.0
+            try:
+                commission = float(d.get('佣金','') or 0)
+            except:
+                commission = 0.0
+            try:
+                settle_price = float(d.get('结算价','') or (buy_price + commission))
+            except:
+                settle_price = buy_price + commission
+            total_amount += settle_price
+            total_qty += qty
+            items.append((i, courier_no, name, qty, buy_price, commission, settle_price, d.get('备注','')))
+
+        try:
+            from PIL import Image, ImageDraw, ImageFont, ImageTk
+            import tkinter as tk
+            def _font(sz):
+                paths = [
+                    r"C:\Windows\Fonts\msyh.ttc",
+                    r"C:\Windows\Fonts\msyh.ttf",
+                    r"C:\Windows\Fonts\simhei.ttf",
+                    r"C:\Windows\Fonts\simsun.ttc",
+                    r"C:\Windows\Fonts\simsun.ttf",
+                    r"C:\Windows\Fonts\Microsoft YaHei UI.ttf",
+                ]
+                for p in paths:
+                    try:
+                        return ImageFont.truetype(p, sz)
+                    except Exception:
+                        continue
+                return ImageFont.load_default()
+            # 先计算内容行数与基准区域
+            width = 800
+            title_font = _font(24)
+            text_font = _font(14)
+            small_font = _font(12)
+            supplier = next((d.get('货商姓名','') for d in data_src if d.get('货商姓名','')), '')
+            left = 20
+            right_base = 780
+            top = 120
+            header_h = 30
+            row_h = 28
+            rows = max(len(items), 1)
+            dynamic_h = max(600, top + header_h + row_h * rows + 120)
+            # 列：序号 | 入库快递单号 | 商品名称 | 数量 | 买价 | 佣金 | 结算价 | 备注（动态列宽）
+            cols = ['序号','入库快递单号','商品名称','数量','买价','佣金','结算价','备注']
+            # 计算内容最大宽度
+            temp_draw = ImageDraw.Draw(Image.new('RGB', (1,1)))
+            def w(text, font):
+                try:
+                    box = temp_draw.textbbox((0,0), str(text), font=font)
+                    return box[2]-box[0]
+                except Exception:
+                    return len(str(text))*10
+            maxw = {
+                '序号': w('序号', small_font),
+                '入库快递单号': w('入库快递单号', small_font),
+                '商品名称': w('商品名称', small_font),
+                '数量': w('数量', small_font),
+                '买价': w('买价', small_font),
+                '佣金': w('佣金', small_font),
+                '结算价': w('结算价', small_font),
+                '备注': w('备注', small_font),
+            }
+            for row in items:
+                maxw['序号'] = max(maxw['序号'], w(row[0], small_font))
+                maxw['入库快递单号'] = max(maxw['入库快递单号'], w(row[1], small_font))
+                maxw['商品名称'] = max(maxw['商品名称'], w(row[2], small_font))
+                maxw['数量'] = max(maxw['数量'], w(row[3], small_font))
+                maxw['买价'] = max(maxw['买价'], w(row[4], small_font))
+                maxw['佣金'] = max(maxw['佣金'], w(row[5], small_font))
+                maxw['结算价'] = max(maxw['结算价'], w(row[6], small_font))
+                maxw['备注'] = max(maxw['备注'], w(row[7], small_font))
+            # 基础最小/最大宽度与内边距
+            pad = 16
+            limits = {
+                '序号': (60, 100),
+                '入库快递单号': (120, 260),
+                '商品名称': (220, 360),
+                '数量': (70, 100),
+                '买价': (90, 130),
+                '佣金': (90, 130),
+                '结算价': (100, 140),
+                '备注': (160, 380),
+            }
+            # 初算宽度
+            widths = {k: max(limits[k][0], min(maxw[k]+pad, limits[k][1])) for k in maxw}
+            total = sum(widths.values())
+            available = right_base - left
+            # 调整：所有列参与缩放（保证不小于最小宽度、不超过最大宽度）
+            if total > available:
+                over = total - available
+                order = ['备注','商品名称','入库快递单号','结算价','买价','佣金','数量','序号']
+                idx = 0
+                while over > 0 and idx < len(order):
+                    key = order[idx]
+                    reducible = widths[key] - limits[key][0]
+                    if reducible > 0:
+                        delta = min(reducible, max(1, over // (len(order) - idx)))
+                        widths[key] -= delta
+                        over -= delta
+                    idx += 1
+                # 如果仍有剩余，继续从第一列轮询直到消除
+                while over > 0:
+                    done = True
+                    for key in order:
+                        reducible = widths[key] - limits[key][0]
+                        if reducible > 0 and over > 0:
+                            widths[key] -= 1
+                            over -= 1
+                            done = False
+                    if done:
+                        break
+            elif total < available:
+                remain = available - total
+                order = ['备注','商品名称','入库快递单号','结算价','买价','佣金','数量','序号']
+                idx = 0
+                while remain > 0 and idx < len(order):
+                    key = order[idx]
+                    expandable = limits[key][1] - widths[key]
+                    if expandable > 0:
+                        delta = min(expandable, max(1, remain // (len(order) - idx)))
+                        widths[key] += delta
+                        remain -= delta
+                    idx += 1
+                while remain > 0:
+                    done = True
+                    for key in order:
+                        expandable = limits[key][1] - widths[key]
+                        if expandable > 0 and remain > 0:
+                            widths[key] += 1
+                            remain -= 1
+                            done = False
+                    if done:
+                        break
+            # 生成列边界
+            bounds = [left]
+            for key in ['序号','入库快递单号','商品名称','数量','买价','佣金','结算价','备注']:
+                bounds.append(bounds[-1] + widths[key])
+            calc_right = bounds[-1]
+            # 如果总宽超出基准，则扩展图片宽度，确保不截断
+            width = max(width, calc_right + 20)
+            right = width - 20
+            img = Image.new('RGB', (width, dynamic_h), 'white')
+            draw = ImageDraw.Draw(img)
+            # 标题居中，日期与编号右对齐（根据宽度动态计算）
+            title  = self.controller.settings_model.get_document_title_default()
+            prefix = self.controller.settings_model.get_document_code_prefix_default().upper()
+            code   = (prefix + _dt.now().strftime('%Y%m%d') + uuid.uuid4().hex[:6]).upper()
+            draw.text((width//2, 20), title, fill='black', font=title_font, anchor='mm')
+            draw.text((40, 60), f'供应商: {supplier}', fill='black', font=text_font)
+            def _tw(s, f):
+                try:
+                    return draw.textbbox((0,0), s, font=f)[2]
+                except Exception:
+                    return len(s)*10
+            right_x = width - 40
+            date_str = f'单据日期: {today}'
+            code_str = f'单据编号: {code}'
+            draw.text((right_x - _tw(date_str, text_font), 60), date_str, fill='black', font=text_font)
+            draw.text((right_x - _tw(code_str, text_font), 85), code_str, fill='black', font=text_font)
+            # 绘制外框与列线
+            draw.rectangle([left, top, calc_right, top + header_h + row_h * rows], outline='black', width=1)
+            for j in range(len(bounds)-1):
+                draw.line([(bounds[j], top), (bounds[j], top + header_h + row_h * rows)], fill='black', width=1)
+            draw.line([(left, top + header_h), (calc_right, top + header_h)], fill='black', width=1)
+            # 绘制表头
+            for j, c in enumerate(cols):
+                draw.text((bounds[j] + 6, top + 6), c, fill='black', font=small_font)
+            y = top + header_h
+            for row in items:
+                y += 1
+                draw.line([(left, y + row_h), (calc_right, y + row_h)], fill='black', width=1)
+                for j, val in enumerate(row):
+                    draw.text((bounds[j] + 6, y + 6), str(val), fill='black', font=small_font)
+                y += row_h
+            draw.text((left, y + 10), f'合计 数量: {total_qty}', fill='black', font=text_font)
+            draw.text((left + 260, y + 10), f'合计金额: {total_amount:.2f}', fill='black', font=text_font)
+            draw.text((left, y + 40), f'制单人: {maker}', fill='black', font=text_font)
+            win = tk.Toplevel(self)
+            win.title('票据预览')
+            win.geometry(f'{width+20}x{dynamic_h+140}')
+            tk_img = ImageTk.PhotoImage(img)
+            lbl = tk.Label(win, image=tk_img)
+            lbl.image = tk_img
+            lbl.pack(padx=10, pady=10)
+            btns = tk.Frame(win)
+            btns.pack(pady=5)
+            def save_as(ext):
+                from tkinter import filedialog
+                path = filedialog.asksaveasfilename(defaultextension=f'.{ext}', filetypes=[(ext.upper(), f'*.{ext}')])
+                if path:
+                    img.save(path)
+            tk.Button(btns, text='保存PNG', command=lambda: save_as('png')).pack(side='left', padx=5)
+            tk.Button(btns, text='保存JPG', command=lambda: save_as('jpg')).pack(side='left', padx=5)
+            def copy_clipboard():
+                try:
+                    # 优先使用 pywin32（更稳定）
+                    import io
+                    from PIL import Image
+                    import win32clipboard, win32con
+                    output = io.BytesIO()
+                    img.convert('RGB').save(output, 'BMP')
+                    data = output.getvalue()[14:]
+                    output.close()
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardData(win32con.CF_DIB, data)
+                    win32clipboard.CloseClipboard()
+                except Exception:
+                    # 回退到 ctypes 实现
+                    try:
+                        import ctypes, io
+                        output = io.BytesIO()
+                        img.convert('RGB').save(output, 'BMP')
+                        data = output.getvalue()[14:]
+                        output.close()
+                        CF_DIB = 8
+                        GMEM_MOVEABLE = 0x0002
+                        user32 = ctypes.windll.user32
+                        kernel32 = ctypes.windll.kernel32
+                        hGlobal = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+                        pGlobal = kernel32.GlobalLock(hGlobal)
+                        ctypes.memmove(pGlobal, data, len(data))
+                        kernel32.GlobalUnlock(hGlobal)
+                        user32.OpenClipboard(0)
+                        user32.EmptyClipboard()
+                        user32.SetClipboardData(CF_DIB, hGlobal)
+                        user32.CloseClipboard()
+                    except Exception:
+                        pass
+            tk.Button(btns, text='复制到剪贴板', command=copy_clipboard).pack(side='left', padx=5)
+        except Exception:
+            import tkinter as tk
+            from tkinter import messagebox
+            messagebox.showerror('错误', '未安装Pillow或系统缺少中文字体，无法生成票据图片')
         
     def update_metrics(self):
         sold_profit = settled_profit = inventory_value = shipping_cost = commission_cost = unsettled_amount = 0.0

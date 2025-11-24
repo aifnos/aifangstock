@@ -172,7 +172,19 @@ class SettingsView(ttk.Frame):
         old = self.tbl_tree.item(sel[0], "values")[0].lstrip("✓ ").strip()
         new = sd.askstring("重命名表", "新表名：", initialvalue=old, parent=self)
         if new:
+            ok = False
+            try:
+                ok = self.controller.model.rename_table(old, new)
+            except Exception:
+                ok = False
             self.settings_model.rename_table(old, new)
+            if ok:
+                try:
+                    self.controller.switch_table(new)
+                except Exception:
+                    pass
+            else:
+                messagebox.showwarning("提示", "CSV文件重命名失败，已仅更新列表；旧表数据仍在原文件")
             self._refresh_tables()
 
     def _on_delete_table(self):
@@ -184,6 +196,16 @@ class SettingsView(ttk.Frame):
         if messagebox.askyesno("确认", f"删除表 {name}？"):
             self.settings_model.delete_table(name)
             self._refresh_tables()
+            # 保证激活表有效并切换视图模型
+            active = self.settings_model.get_active_table()
+            if not active:
+                self.settings_model.add_table("default")
+                self.settings_model.set_active_table("default")
+                active = "default"
+            try:
+                self.controller.switch_table(active)
+            except Exception:
+                pass
 
     def _on_switch_table(self):
         sel = self.tbl_tree.selection()
@@ -490,9 +512,27 @@ class SettingsView(ttk.Frame):
             "  - 当前库存全部数量：默认出库该商品的剩余库存数量"
         )
         ttk.Label(page, text=desc_text, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", padx=10, pady=5)
+
+        # 制单人默认值
+        ttk.Label(page, text="制单人默认值:").grid(row=6, column=0, sticky="e", padx=10, pady=10)
+        self.ent_document_maker = ttk.Entry(page, width=20)
+        self.ent_document_maker.grid(row=6, column=1, sticky="w", padx=10, pady=10)
+        self.ent_document_maker.insert(0, str(self.settings_model.get_document_maker_default()))
+
+        # 单据编号前缀
+        ttk.Label(page, text="单据编号前缀:").grid(row=7, column=0, sticky="e", padx=10, pady=10)
+        self.ent_code_prefix = ttk.Entry(page, width=20)
+        self.ent_code_prefix.grid(row=7, column=1, sticky="w", padx=10, pady=10)
+        self.ent_code_prefix.insert(0, str(self.settings_model.get_document_code_prefix_default()))
+
+        # 票据标题
+        ttk.Label(page, text="票据标题:").grid(row=8, column=0, sticky="e", padx=10, pady=10)
+        self.ent_doc_title = ttk.Entry(page, width=20)
+        self.ent_doc_title.grid(row=8, column=1, sticky="w", padx=10, pady=10)
+        self.ent_doc_title.insert(0, str(self.settings_model.get_document_title_default()))
         
         # 保存按钮
-        ttk.Button(page, text="保存", command=self._save_field_defaults).grid(row=6, column=0, columnspan=2, pady=20)
+        ttk.Button(page, text="保存", command=self._save_field_defaults).grid(row=9, column=0, columnspan=2, pady=20)
         
         return page
     
@@ -528,6 +568,12 @@ class SettingsView(ttk.Frame):
             # 保存出库数量默认值模式
             outbound_mode = 'one' if self.cb_outbound_mode.get() == "一件" else 'all'
             self.settings_model.set_outbound_quantity_mode(outbound_mode)
+
+            # 保存制单人默认值
+            self.settings_model.set_document_maker_default(self.ent_document_maker.get().strip() or '管理员')
+            # 保存编号前缀与标题
+            self.settings_model.set_document_code_prefix_default((self.ent_code_prefix.get().strip() or 'JHD'))
+            self.settings_model.set_document_title_default((self.ent_doc_title.get().strip() or '进货单'))
             
             messagebox.showinfo("成功", "字段默认值已保存！\n下次打开入库登记页面时将使用新的默认值")
         except Exception as e:

@@ -105,9 +105,21 @@ class InventoryController:
             updated_fields['结算价'] = f"{settlement_price:.2f}"
             updated_fields['单价'] = f"{unit_price:.2f}"
             
-            # 如果修改了商品数量，需要重新计算剩余数量和剩余价值
-            if '商品数量' in updated_fields:
-                # 如果剩余数量为空，设置为新的商品数量
+            # 优先处理剩余数量的直接修改
+            if '剩余数量' in updated_fields:
+                try:
+                    new_remaining = int(updated_fields.get('剩余数量', original_record.get('剩余数量', '0') or '0'))
+                except ValueError:
+                    return False, "剩余数量格式错误，应为整数"
+                # 约束到 [0, 商品数量]
+                if new_remaining < 0:
+                    new_remaining = 0
+                if new_remaining > quantity:
+                    new_remaining = quantity
+                updated_fields['剩余数量'] = str(new_remaining)
+                updated_fields['剩余价值'] = f"{new_remaining * unit_price:.2f}"
+            elif '商品数量' in updated_fields:
+                # 如果修改了商品数量，需要重新计算剩余数量和剩余价值
                 remaining_qty = int(original_record.get('剩余数量', '') or original_record.get('商品数量', '0'))
                 if not original_record.get('剩余数量', ''):
                     remaining_qty = quantity
@@ -172,6 +184,13 @@ class InventoryController:
             
     def switch_table(self, table_name):
         """切换到指定的数据表"""
+        if not table_name:
+            table_name = "default"
+            try:
+                self.settings_model.add_table("default")
+                self.settings_model.set_active_table("default")
+            except Exception:
+                pass
         self.model = InventoryModel(table_name)
         self.refresh_inventory_list()
 
