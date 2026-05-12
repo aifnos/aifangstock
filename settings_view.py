@@ -288,7 +288,7 @@ class SettingsView(ttk.Frame):
         type_frame.pack(fill=tk.X, padx=5, pady=5)
         ttk.Label(type_frame, text="页面类型:").pack(side=tk.LEFT, padx=5)
         self.cb_page_type = ttk.Combobox(type_frame, values=[
-            "入库登记页", "出库登记页", "数据查询页"
+            "入库登记页", "出库登记页", "数据查询页", "默认打印列"
         ], state="readonly", width=20)
         self.cb_page_type.pack(side=tk.LEFT, padx=5)
         self.cb_page_type.bind("<<ComboboxSelected>>", self._on_page_type_change)
@@ -316,15 +316,30 @@ class SettingsView(ttk.Frame):
         # 显示列列表
         right_frame = ttk.Frame(config_frame)
         right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5,0))
-        ttk.Label(right_frame, text="显示列:").pack(anchor="w")
+        self.display_list_label_var = tk.StringVar(value="显示列:")
+        ttk.Label(right_frame, textvariable=self.display_list_label_var).pack(anchor="w")
         self.display_listbox = tk.Listbox(right_frame, selectmode=tk.SINGLE, height=15)
         self.display_listbox.pack(fill=tk.BOTH, expand=True)
+
+        self.print_alias_vars = {}
+        self.print_alias_frame = ttk.LabelFrame(page, text="默认打印列别称")
+        self.print_alias_canvas = tk.Canvas(self.print_alias_frame, height=130, borderwidth=0, highlightthickness=0)
+        self.print_alias_scroll = ttk.Scrollbar(self.print_alias_frame, orient="vertical", command=self.print_alias_canvas.yview)
+        self.print_alias_inner = ttk.Frame(self.print_alias_canvas)
+        self.print_alias_inner.bind(
+            "<Configure>",
+            lambda e: self.print_alias_canvas.configure(scrollregion=self.print_alias_canvas.bbox("all"))
+        )
+        self.print_alias_canvas.create_window((0, 0), window=self.print_alias_inner, anchor="nw")
+        self.print_alias_canvas.configure(yscrollcommand=self.print_alias_scroll.set)
+        self.print_alias_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.print_alias_scroll.pack(side=tk.RIGHT, fill=tk.Y, pady=5)
         
         # 底部按钮
-        btn_frame = ttk.Frame(page)
-        btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(btn_frame, text="保存配置", command=self._save_column_config).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="重置默认", command=self._reset_column_config).pack(side=tk.LEFT, padx=5)
+        self.column_btn_frame = ttk.Frame(page)
+        self.column_btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(self.column_btn_frame, text="保存配置", command=self._save_column_config).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.column_btn_frame, text="重置默认", command=self._reset_column_config).pack(side=tk.LEFT, padx=5)
         
         # 初始化显示
         self._refresh_column_config()
@@ -336,7 +351,9 @@ class SettingsView(ttk.Frame):
         type_map = {
             "入库登记页": "inbound",
             "出库登记页": "outbound", 
-            "数据查询页": "data_query"
+            "数据查询页": "data_query",
+            "默认打印列": "data_query_print",
+            "数据查询打印明细": "data_query_print"
         }
         return type_map.get(self.cb_page_type.get(), "inbound")
     
@@ -362,6 +379,45 @@ class SettingsView(ttk.Frame):
         self.display_listbox.delete(0, tk.END)
         for col in display_columns:
             self.display_listbox.insert(tk.END, col)
+        self._refresh_print_alias_entries()
+
+    def _get_current_display_columns(self):
+        """获取当前右侧列表中的列"""
+        return [self.display_listbox.get(i) for i in range(self.display_listbox.size())]
+
+    def _refresh_print_alias_entries(self):
+        """刷新默认打印列别称输入区"""
+        if not hasattr(self, "print_alias_frame"):
+            return
+
+        page_type = self._get_page_type_key()
+        if hasattr(self, "display_list_label_var"):
+            self.display_list_label_var.set("默认打印列:" if page_type == "data_query_print" else "显示列:")
+
+        if page_type != "data_query_print":
+            self.print_alias_frame.pack_forget()
+            self.print_alias_vars = {}
+            return
+
+        self.print_alias_frame.pack(fill=tk.BOTH, expand=False, padx=5, pady=(0, 5), before=self.column_btn_frame)
+
+        alias_values = self.settings_model.get_column_aliases("data_query_print")
+        for col, var in getattr(self, "print_alias_vars", {}).items():
+            alias_values[col] = var.get()
+
+        for child in self.print_alias_inner.winfo_children():
+            child.destroy()
+        self.print_alias_vars = {}
+
+        ttk.Label(self.print_alias_inner, text="原列名", width=18).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(self.print_alias_inner, text="打印列名", width=24).grid(row=0, column=1, sticky="w", padx=5, pady=2)
+
+        for row_index, col in enumerate(self._get_current_display_columns(), 1):
+            ttk.Label(self.print_alias_inner, text=col, width=18).grid(row=row_index, column=0, sticky="w", padx=5, pady=2)
+            var = tk.StringVar(value=alias_values.get(col, ""))
+            self.print_alias_vars[col] = var
+            ttk.Entry(self.print_alias_inner, textvariable=var, width=28).grid(row=row_index, column=1, sticky="ew", padx=5, pady=2)
+        self.print_alias_inner.grid_columnconfigure(1, weight=1)
     
     def _add_column(self):
         """添加选中的列到显示列表"""
@@ -380,6 +436,7 @@ class SettingsView(ttk.Frame):
         # 从可用列表中移除
         for i in reversed(selection):
             self.available_listbox.delete(i)
+        self._refresh_print_alias_entries()
     
     def _remove_column(self):
         """从显示列表中移除选中的列"""
@@ -396,6 +453,7 @@ class SettingsView(ttk.Frame):
         
         # 添加到可用列表
         self.available_listbox.insert(tk.END, selected_column)
+        self._refresh_print_alias_entries()
     
     def _move_up(self):
         """向上移动选中的显示列"""
@@ -408,6 +466,7 @@ class SettingsView(ttk.Frame):
         self.display_listbox.delete(index)
         self.display_listbox.insert(index - 1, item)
         self.display_listbox.selection_set(index - 1)
+        self._refresh_print_alias_entries()
     
     def _move_down(self):
         """向下移动选中的显示列"""
@@ -420,23 +479,34 @@ class SettingsView(ttk.Frame):
         self.display_listbox.delete(index)
         self.display_listbox.insert(index + 1, item)
         self.display_listbox.selection_set(index + 1)
+        self._refresh_print_alias_entries()
     
     def _save_column_config(self):
         """保存列配置"""
         page_type = self._get_page_type_key()
-        display_columns = [self.display_listbox.get(i) for i in range(self.display_listbox.size())]
+        display_columns = self._get_current_display_columns()
         
         if not display_columns:
             messagebox.showwarning("提示", "至少需要显示一列")
             return
         
         self.settings_model.set_display_columns(page_type, display_columns)
+        if page_type == 'data_query_print':
+            aliases = {}
+            for col in display_columns:
+                var = self.print_alias_vars.get(col)
+                if var:
+                    aliases[col] = var.get().strip()
+            self.settings_model.set_column_aliases(page_type, aliases)
         
         # 通知控制器刷新相关页面
         if hasattr(self.controller, 'refresh_column_display'):
             self.controller.refresh_column_display(page_type)
-        
-        messagebox.showinfo("成功", "列配置已保存并应用！")
+
+        if page_type == 'data_query_print':
+            messagebox.showinfo("成功", "默认打印列已保存！")
+        else:
+            messagebox.showinfo("成功", "列配置已保存并应用！")
     
     def _reset_column_config(self):
         """重置为默认列配置"""
@@ -450,17 +520,24 @@ class SettingsView(ttk.Frame):
             default_columns = ['入库快递单号', '货商姓名', '商品名称', '商品数量', '入库时间', '颜色/配置']
         elif page_type == 'outbound':
             default_columns = ['选中', '出库数量', '单号', '商品名称', '商品数量', '剩余数量', '剩余价值', '颜色/配置', '货商姓名', '入库时间']
-        else:  # data_query
+        elif page_type == 'data_query':
+            default_columns = ['单号', '货商姓名', '入库时间', '商品名称', '商品数量', '买价', '佣金', '结算价', '行情价格', '出库状态', '出库记录']
+        else:  # data_query_print
             default_columns = ['单号', '货商姓名', '入库时间', '商品名称', '商品数量', '买价', '佣金', '结算价', '出库状态']
         
         self.settings_model.set_display_columns(page_type, default_columns)
+        if page_type == 'data_query_print':
+            self.settings_model.set_column_aliases(page_type, {})
         self._refresh_column_config()
         
         # 刷新对应页面的列显示
         if hasattr(self.controller, 'refresh_column_display'):
             self.controller.refresh_column_display(page_type)
-        
-        messagebox.showinfo("成功", "已重置为默认配置并应用！")
+
+        if page_type == 'data_query_print':
+            messagebox.showinfo("成功", "默认打印列已重置！")
+        else:
+            messagebox.showinfo("成功", "已重置为默认配置并应用！")
 
     # --- 字段默认值页 ---
     def _create_field_defaults_page(self):

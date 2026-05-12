@@ -20,7 +20,7 @@ class InventoryMainView:
         # 创建主窗口
         self.root = tk.Tk()
         # 设置窗口标题
-        self.root.title("招财进宝管理系统 3.0")
+        self.root.title("招财进宝管理系统 3.2")
 
         try:
             # 设置任务栏图标（使用.ico文件）

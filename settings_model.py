@@ -36,7 +36,11 @@ class SettingsModel:
             'column_display': {
                 'inbound': ['入库快递单号', '货商姓名', '商品名称', '商品数量', '入库时间', '颜色/配置'],
                 'outbound': ['选中', '出库数量', '单号', '商品名称', '商品数量', '剩余数量', '剩余价值', '颜色/配置', '货商姓名', '入库时间'],
-                'data_query': ['单号', '货商姓名', '入库时间', '商品名称', '商品数量', '买价', '佣金', '结算价', '出库状态']
+                'data_query': ['单号', '货商姓名', '入库时间', '商品名称', '商品数量', '买价', '佣金', '结算价', '行情价格', '出库状态', '出库记录'],
+                'data_query_print': ['单号', '货商姓名', '入库时间', '商品名称', '商品数量', '买价', '佣金', '结算价', '出库状态']
+            },
+            'column_aliases': {
+                'data_query_print': {}
             },
             'field_defaults': {
                 'inbound_commission': 0,
@@ -69,6 +73,33 @@ class SettingsModel:
         # 确保出库数量模式配置存在
         if 'outbound_quantity_mode' not in self.settings.get('field_defaults', {}):
             self.settings['field_defaults']['outbound_quantity_mode'] = 'one'
+            self._save_settings()
+        if 'column_display' not in self.settings:
+            self.settings['column_display'] = {}
+            self._save_settings()
+        if 'column_aliases' not in self.settings:
+            self.settings['column_aliases'] = {}
+            self._save_settings()
+        if 'data_query_print' not in self.settings.get('column_aliases', {}):
+            self.settings['column_aliases']['data_query_print'] = {}
+            self._save_settings()
+        if 'data_query_print' not in self.settings.get('column_display', {}):
+            self.settings['column_display']['data_query_print'] = [
+                '单号', '货商姓名', '入库时间', '商品名称', '商品数量',
+                '买价', '佣金', '结算价', '出库状态'
+            ]
+            self._save_settings()
+        legacy_data_query_default = [
+            '单号', '货商姓名', '入库时间', '商品名称', '商品数量',
+            '买价', '佣金', '结算价', '出库状态'
+        ]
+        restored_data_query_default = [
+            '单号', '货商姓名', '入库时间', '商品名称', '商品数量',
+            '买价', '佣金', '结算价', '行情价格', '出库状态', '出库记录'
+        ]
+        column_display = self.settings.setdefault('column_display', {})
+        if column_display.get('data_query') == legacy_data_query_default:
+            column_display['data_query'] = restored_data_query_default
             self._save_settings()
 
     # --- 供应商 ---
@@ -209,6 +240,8 @@ class SettingsModel:
             return ['选中', '出库数量', '单号', '商品名称', '商品数量', '剩余数量', '剩余价值', '颜色/配置', '货商姓名', '入库时间', '买价', '佣金', '结算价']
         elif page_type == 'data_query':
             return ['单号', '货商姓名', '入库时间', '数字条码', '商品名称', '商品数量', '结算日期', '入库快递单号', '货源', '颜色/配置', '买价', '佣金', '结算价', '单价', '剩余数量', '剩余价值', '行情价格', '结算状态', '出库状态', '出库档口', '快递单号', '快递价格', '利润', '备注', '出库记录']
+        elif page_type == 'data_query_print':
+            return ['单号', '货商姓名', '入库时间', '数字条码', '商品名称', '商品数量', '结算日期', '入库快递单号', '货源', '颜色/配置', '买价', '佣金', '结算价', '单价', '剩余数量', '剩余价值', '行情价格', '结算状态', '出库状态', '出库档口', '快递单号', '快递价格', '利润', '备注', '出库记录', '盈亏', '入库次数']
         return []
 
     def get_display_columns(self, page_type: str) -> list:
@@ -220,6 +253,24 @@ class SettingsModel:
         if 'column_display' not in self.settings:
             self.settings['column_display'] = {}
         self.settings['column_display'][page_type] = columns
+        self._save_settings()
+
+    def get_column_aliases(self, page_type: str) -> dict:
+        """获取指定页面类型的列别称配置"""
+        aliases = self.settings.get('column_aliases', {}).get(page_type, {})
+        return dict(aliases) if isinstance(aliases, dict) else {}
+
+    def set_column_aliases(self, page_type: str, aliases: dict):
+        """设置指定页面类型的列别称配置"""
+        if 'column_aliases' not in self.settings:
+            self.settings['column_aliases'] = {}
+        clean_aliases = {}
+        for col, alias in aliases.items():
+            col = str(col).strip()
+            alias = str(alias).strip()
+            if col and alias and alias != col:
+                clean_aliases[col] = alias
+        self.settings['column_aliases'][page_type] = clean_aliases
         self._save_settings()
 
     # -------- 字段默认值管理 --------

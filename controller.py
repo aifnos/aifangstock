@@ -165,12 +165,13 @@ class InventoryController:
 
         # 3) 如果当前 DataView 是“全部库存”，则仅替换数据，不重置筛选
         dp = self.view.data_page
-        if dp.cb.get() == "全部库存" and dp.columns:
+        data_columns = getattr(dp, "all_columns", None) or getattr(dp, "columns", [])
+        if dp.cb.get() == "全部库存" and data_columns:
             # 构造新的行数据
             new_data = []
             for r in recs:
-                new_data.append(tuple(r.get(c, "") for c in dp.columns))
-            dp.update_current_data(dp.columns, new_data)
+                new_data.append(tuple(r.get(c, "") for c in data_columns))
+            dp.update_current_data(data_columns, new_data)
 
     def refresh_supplier_list(self):
         sups = self.settings_model.get_suppliers()

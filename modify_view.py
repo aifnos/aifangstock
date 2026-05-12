@@ -65,6 +65,9 @@ class ModifyView(ttk.Frame):
         vsb = ttk.Scrollbar(tree_fr, orient="vertical", command=self.tree.yview)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.configure(yscrollcommand=vsb.set)
+        hsb = ttk.Scrollbar(self, orient="horizontal", command=self.tree.xview)
+        hsb.pack(fill=tk.X)
+        self.tree.configure(xscrollcommand=hsb.set)
 
         # —— 筛选区 ——
         self.filter_canvas = tk.Canvas(self, height=60)
@@ -86,11 +89,11 @@ class ModifyView(ttk.Frame):
             e.grid(row=1, column=i, padx=2, pady=2)
             e.bind("<Return>", lambda ev: self.apply_filters())
             self.filter_entries[c] = e
-        # 筛选与清空按钮
-        ttk.Button(self.filter_inner, text="应用筛选", command=self.apply_filters)\
-            .grid(row=1, column=len(self.columns), padx=5)
-        ttk.Button(self.filter_inner, text="清空筛选条件", command=self.clear_filters)\
-            .grid(row=1, column=len(self.columns)+1, padx=5)
+        # 筛选与清空按钮（整体筛选区下方）
+        self.filter_btn_frame = ttk.Frame(self)
+        self.filter_btn_frame.pack(fill=tk.X, pady=(2,5))
+        ttk.Button(self.filter_btn_frame, text="应用筛选", command=self.apply_filters).pack(side=tk.LEFT, padx=5)
+        ttk.Button(self.filter_btn_frame, text="清空筛选条件", command=self.clear_filters).pack(side=tk.LEFT, padx=5)
 
         # —— 操作按钮区 ——
         btn_fr = ttk.Frame(self)
@@ -143,7 +146,7 @@ class ModifyView(ttk.Frame):
                 inner.grid(row=row, column=col*2+1, sticky="w", padx=5, pady=2)
                 w = (date_ent, cb_h, cb_m, cb_s)
             elif field in ("结算状态","出库状态"):
-                vals = ["是","否"] if field=="结算状态" else ["未出库","卖出"]
+                vals = ["是","否"] if field=="结算状态" else ["未出库","部分出库","全部出库","退货"]
                 w = ttk.Combobox(form_fr, values=vals, state="readonly", width=18)
                 w.grid(row=row, column=col*2+1, sticky="w", padx=5, pady=2)
             elif field == "出库档口":

@@ -18,7 +18,7 @@ class UpdateView(ttk.Frame):
         super().__init__(parent, padding=10)
         self.controller = controller
         self.update_server_url = "https://updata.aifang.pro/index.php"
-        self.current_version = "2.3.6"  # 当前版本号
+        self.current_version = "3.2"  # 当前版本号
         self.checking = False
         self.downloading = False
         self.create_widgets()
@@ -76,7 +76,7 @@ class UpdateView(ttk.Frame):
     def get_build_date(self):
         # 获取应用程序构建日期，这里简化为返回固定值
         # 实际应用中可以从配置文件或编译信息中获取
-        return "2025-5-17"
+        return "2026-05-09"
     
     def check_for_updates(self):
         if self.checking:

@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from datetime import datetime
 
 class DataView(ttk.Frame):
@@ -40,29 +40,38 @@ class DataView(ttk.Frame):
         self.btn_invoice = ttk.Button(self, text="生成票据", command=self.generate_invoice)
         self.btn_invoice.grid(row=0, column=5, padx=5, pady=5)
         self.btn_invoice.state(["disabled"]) 
+        self.btn_print_detail = ttk.Button(self, text="打印明细", command=self.open_print_detail_dialog)
+        self.btn_print_detail.grid(row=0, column=6, padx=5, pady=5)
+        print_tools = ttk.Frame(self)
+        print_tools.grid(row=0, column=7, padx=5, pady=5, sticky="w")
+        ttk.Button(print_tools, text="全选打印", command=self.select_all_print).pack(side=tk.LEFT, padx=2)
+        ttk.Button(print_tools, text="取消全选", command=self.deselect_all_print).pack(side=tk.LEFT, padx=2)
+        self.lbl_print_selected_count = ttk.Label(print_tools, text="已选中 0 条")
+        self.lbl_print_selected_count.pack(side=tk.LEFT, padx=5)
         self.on_q()
 
         # 结果表格
         self.tree = ttk.Treeview(self, show="headings", selectmode="extended")
-        self.tree.grid(row=1, column=0, columnspan=5, sticky="nsew")
+        self.tree.grid(row=1, column=0, columnspan=8, sticky="nsew")
         # 仅"出库状态"列上色
         self.tree.tag_configure('outbound', foreground='green')
         self.tree.tag_configure('inbound',  foreground='blue')
         # 绑定双击事件
         self.tree.bind("<Double-1>", self.on_tree_double_click)
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_selection_change)
 
         vsb = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
-        vsb.grid(row=1, column=5, sticky="ns")
+        vsb.grid(row=1, column=8, sticky="ns")
         self.tree.configure(yscrollcommand=vsb.set)
         hsb = ttk.Scrollbar(self, orient="horizontal", command=self.tree.xview)
-        hsb.grid(row=2, column=0, columnspan=5, sticky="ew")
+        hsb.grid(row=2, column=0, columnspan=8, sticky="ew")
         self.tree.configure(xscrollcommand=hsb.set)
 
         # 筛选区
         self.filter_canvas = tk.Canvas(self, height=60)
-        self.filter_canvas.grid(row=3, column=0, columnspan=5, sticky="ew")
+        self.filter_canvas.grid(row=3, column=0, columnspan=8, sticky="ew")
         fhsb = ttk.Scrollbar(self, orient="horizontal", command=self.filter_canvas.xview)
-        fhsb.grid(row=4, column=0, columnspan=5, sticky="ew")
+        fhsb.grid(row=4, column=0, columnspan=8, sticky="ew")
         self.filter_canvas.configure(xscrollcommand=fhsb.set)
         self.filter_inner = ttk.Frame(self.filter_canvas)
         self.filter_canvas.create_window((0,0), window=self.filter_inner, anchor="nw")
@@ -86,15 +95,15 @@ class DataView(ttk.Frame):
         self.lbl_total_rows       = ttk.Label(self, text="总条数: 0")
         self.lbl_total_qty        = ttk.Label(self, text="商品数量总和: 0.00")
 
-        self.lbl_sold_profit     .grid(row=5, column=0, columnspan=5, sticky="w", pady=(10,0))
-        self.lbl_settled_profit  .grid(row=6, column=0, columnspan=5, sticky="w")
-        self.lbl_inventory_value.grid(row=7, column=0, columnspan=5, sticky="w")
-        self.lbl_shipping_cost  .grid(row=8, column=0, columnspan=5, sticky="w")
-        self.lbl_commission_cost.grid(row=9, column=0, columnspan=5, sticky="w")
-        self.lbl_unsettled_amount.grid(row=10, column=0, columnspan=5, sticky="w")
-        self.lbl_total_market   .grid(row=11, column=0, columnspan=5, sticky="w")
-        self.lbl_total_rows     .grid(row=12, column=0, columnspan=5, sticky="w")
-        self.lbl_total_qty      .grid(row=13, column=0, columnspan=5, sticky="w")
+        self.lbl_sold_profit     .grid(row=5, column=0, columnspan=8, sticky="w", pady=(10,0))
+        self.lbl_settled_profit  .grid(row=6, column=0, columnspan=8, sticky="w")
+        self.lbl_inventory_value.grid(row=7, column=0, columnspan=8, sticky="w")
+        self.lbl_shipping_cost  .grid(row=8, column=0, columnspan=8, sticky="w")
+        self.lbl_commission_cost.grid(row=9, column=0, columnspan=8, sticky="w")
+        self.lbl_unsettled_amount.grid(row=10, column=0, columnspan=8, sticky="w")
+        self.lbl_total_market   .grid(row=11, column=0, columnspan=8, sticky="w")
+        self.lbl_total_rows     .grid(row=12, column=0, columnspan=8, sticky="w")
+        self.lbl_total_qty      .grid(row=13, column=0, columnspan=8, sticky="w")
 
         # 布局权重
         self.grid_rowconfigure(1, weight=1)
@@ -118,6 +127,547 @@ class DataView(ttk.Frame):
             .grid(row=1, column=idx, padx=5)
         ttk.Button(self.filter_inner, text="清空筛选条件", command=self.clear_filters)\
             .grid(row=1, column=idx+1, padx=5)
+
+    def _tree_columns(self):
+        return list(self.columns)
+
+    def _configure_tree_columns(self):
+        tree_columns = self._tree_columns()
+        self.tree["columns"] = tree_columns
+        for c in tree_columns:
+            self.tree.heading(c, text=c, command=lambda c=c: self.sort_by(c))
+            width = 140 if c == "出库记录" else 100
+            self.tree.column(c, width=width, anchor="center")
+
+    def _display_cell_value(self, row, col):
+        if col == "出库记录":
+            return "双击查询详细"
+        return row.get(col, "")
+
+    def _row_values(self, row):
+        return [self._display_cell_value(row, c) for c in self.columns]
+
+    def _row_tags(self, row):
+        return ("outbound" if row.get("出库状态", "") == "卖出" else "inbound",)
+
+    def _selected_row_keys(self):
+        return {id(self.row_items[i]) for i in self.tree.selection() if i in self.row_items}
+
+    def _redraw_tree_rows(self, preserve_selection=True):
+        selected_keys = self._selected_row_keys() if preserve_selection else set()
+        self.tree.delete(*self.tree.get_children())
+        self.row_items.clear()
+        selected_items = []
+        for row in self.full:
+            iid = self.tree.insert("", tk.END, values=self._row_values(row), tags=self._row_tags(row))
+            self.row_items[iid] = row
+            if id(row) in selected_keys:
+                selected_items.append(iid)
+        if selected_items:
+            self.tree.selection_set(selected_items)
+        self._update_print_selected_count()
+        self.update_invoice_button_state()
+
+    def _identify_tree_column_name(self, x):
+        column = self.tree.identify_column(x)
+        if not column:
+            return ""
+        try:
+            col_index = int(column.replace("#", "")) - 1
+        except ValueError:
+            return ""
+        tree_columns = list(self.tree["columns"])
+        if col_index < 0 or col_index >= len(tree_columns):
+            return ""
+        return tree_columns[col_index]
+
+    def on_tree_selection_change(self, event=None):
+        self._update_print_selected_count()
+        self.update_invoice_button_state()
+
+    def _update_print_selected_count(self):
+        count = len(self.tree.selection())
+        if hasattr(self, "lbl_print_selected_count"):
+            self.lbl_print_selected_count.config(text=f"已选中 {count} 条")
+
+    def select_all_print(self):
+        children = self.tree.get_children()
+        if children:
+            self.tree.selection_set(children)
+        self._update_print_selected_count()
+        self.update_invoice_button_state()
+
+    def deselect_all_print(self):
+        children = self.tree.get_children()
+        if children:
+            self.tree.selection_remove(children)
+        self._update_print_selected_count()
+        self.update_invoice_button_state()
+
+    def _get_selected_print_rows(self):
+        rows = []
+        for item in self.tree.selection():
+            row = self.row_items.get(item)
+            if row:
+                rows.append(row)
+        return rows
+
+    def open_print_detail_dialog(self):
+        rows = self._get_selected_print_rows()
+        if not rows:
+            messagebox.showwarning("提示", "请先选择至少一条需要打印的记录！")
+            return
+
+        available_cols = list(getattr(self, "all_columns", []) or self.columns)
+        available_cols = [c for c in available_cols if any(c in row for row in rows)]
+        if not available_cols:
+            messagebox.showwarning("提示", "当前查询结果没有可打印的列！")
+            return
+
+        saved_cols = self.controller.settings_model.get_display_columns("data_query_print")
+        default_cols = [c for c in saved_cols if c in available_cols]
+        if not default_cols:
+            default_cols = [c for c in self.columns if c in available_cols]
+        if not default_cols:
+            default_cols = list(available_cols)
+        default_aliases = self.controller.settings_model.get_column_aliases("data_query_print")
+        self._show_print_column_dialog(rows, available_cols, default_cols, default_aliases)
+
+    def _show_print_column_dialog(self, rows, available_cols, default_cols, default_aliases=None):
+        win = tk.Toplevel(self)
+        win.title("选择打印列")
+        win.geometry("520x600")
+        win.transient(self.winfo_toplevel())
+        win.grab_set()
+
+        title_frame = ttk.Frame(win)
+        title_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        ttk.Label(title_frame, text="打印页名称:").pack(side=tk.LEFT)
+        title_var = tk.StringVar(value="数据查询打印明细")
+        ttk.Entry(title_frame, textvariable=title_var, width=24).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+
+        remark_frame = ttk.Frame(win)
+        remark_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+        ttk.Label(remark_frame, text="打印备注:").pack(side=tk.LEFT)
+        remark_var = tk.StringVar()
+        ttk.Entry(remark_frame, textvariable=remark_var, width=24).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+
+        orientation_frame = ttk.Frame(win)
+        orientation_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+        ttk.Label(orientation_frame, text="打印方向:").pack(side=tk.LEFT)
+        orientation_var = tk.StringVar(value="portrait")
+        ttk.Radiobutton(orientation_frame, text="纵向", value="portrait", variable=orientation_var).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Radiobutton(orientation_frame, text="横向", value="landscape", variable=orientation_var).pack(side=tk.LEFT, padx=5)
+
+        ttk.Label(win, text=f"已选择 {len(rows)} 条记录，请选择打印列：").pack(anchor="w", padx=10, pady=(5, 5))
+
+        body = ttk.Frame(win)
+        body.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        canvas = tk.Canvas(body, borderwidth=0, highlightthickness=0)
+        scroll = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        ttk.Label(inner, text="打印", width=6).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(inner, text="原列名", width=16).grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        ttk.Label(inner, text="打印列名", width=22).grid(row=0, column=2, sticky="w", padx=5, pady=2)
+
+        vars_by_col = {}
+        alias_vars_by_col = {}
+        default_set = set(default_cols)
+        default_aliases = default_aliases or {}
+        for row_index, col in enumerate(available_cols, 1):
+            var = tk.BooleanVar(value=col in default_set)
+            vars_by_col[col] = var
+            ttk.Checkbutton(inner, variable=var).grid(row=row_index, column=0, sticky="w", padx=5, pady=2)
+            ttk.Label(inner, text=col, width=16).grid(row=row_index, column=1, sticky="w", padx=5, pady=2)
+            alias_var = tk.StringVar(value=default_aliases.get(col, ""))
+            alias_vars_by_col[col] = alias_var
+            ttk.Entry(inner, textvariable=alias_var, width=24).grid(row=row_index, column=2, sticky="ew", padx=5, pady=2)
+        inner.grid_columnconfigure(2, weight=1)
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        def set_all(value):
+            for var in vars_by_col.values():
+                var.set(value)
+
+        def preview():
+            selected_cols = [col for col in available_cols if vars_by_col[col].get()]
+            if not selected_cols:
+                messagebox.showwarning("提示", "请至少选择一列打印！", parent=win)
+                return
+            column_aliases = {
+                col: (alias_vars_by_col[col].get().strip() or col)
+                for col in selected_cols
+            }
+            print_title = title_var.get().strip() or "数据查询打印明细"
+            print_remark = remark_var.get().strip()
+            orientation = orientation_var.get()
+            win.destroy()
+            self.show_print_preview(rows, selected_cols, print_title, orientation, print_remark, column_aliases)
+
+        ttk.Button(btn_frame, text="全选", command=lambda: set_all(True)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="清空", command=lambda: set_all(False)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="预览", command=preview).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(btn_frame, text="取消", command=win.destroy).pack(side=tk.RIGHT, padx=3)
+
+    def show_print_preview(self, rows, columns, print_title="数据查询打印明细", orientation="portrait", print_remark="", column_aliases=None):
+        try:
+            from PIL import ImageTk
+            pages = self._render_print_pages(rows, columns, print_title, orientation, print_remark, column_aliases)
+        except Exception as e:
+            messagebox.showerror("错误", f"生成打印预览失败: {e}")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("打印明细预览")
+        win.geometry("980x760")
+        win.transient(self.winfo_toplevel())
+
+        toolbar = ttk.Frame(win)
+        toolbar.pack(fill=tk.X, padx=10, pady=8)
+        orientation_text = "横向" if orientation == "landscape" else "纵向"
+        ttk.Label(toolbar, text=f"共 {len(rows)} 条，{len(columns)} 列，{len(pages)} 页，{orientation_text}").pack(side=tk.LEFT)
+
+        printer_frame = ttk.Frame(win)
+        printer_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
+        ttk.Label(printer_frame, text="打印机:").pack(side=tk.LEFT)
+        printer_var = tk.StringVar()
+        printers = self._get_printer_names()
+        printer_combo = ttk.Combobox(printer_frame, textvariable=printer_var, values=printers, state="readonly", width=36)
+        printer_combo.pack(side=tk.LEFT, padx=5)
+        if printers:
+            try:
+                import win32print
+                default_printer = win32print.GetDefaultPrinter()
+            except Exception:
+                default_printer = ""
+            printer_var.set(default_printer if default_printer in printers else printers[0])
+        else:
+            printer_combo.state(["disabled"])
+            printer_var.set("未找到可用打印机")
+        ttk.Label(printer_frame, text=f"打印页名称: {print_title}").pack(side=tk.LEFT, padx=12)
+
+        def do_print():
+            printer_name = printer_var.get().strip()
+            if not printers or printer_name not in printers:
+                messagebox.showwarning("提示", "请先选择可用打印机。", parent=win)
+                return
+            try:
+                self._send_print_pages(pages, printer_name, print_title)
+                messagebox.showinfo("成功", f"已发送到打印机：{printer_name}", parent=win)
+            except Exception as e:
+                messagebox.showerror("打印失败", str(e), parent=win)
+
+        ttk.Button(toolbar, text="打印", command=do_print).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(toolbar, text="关闭", command=win.destroy).pack(side=tk.RIGHT, padx=5)
+
+        body = ttk.Frame(win)
+        body.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        body.grid_rowconfigure(0, weight=1)
+        body.grid_columnconfigure(0, weight=1)
+        canvas = tk.Canvas(body, background="#f0f0f0")
+        yscroll = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        xscroll = ttk.Scrollbar(body, orient="horizontal", command=canvas.xview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+
+        preview_images = []
+        for page_no, page in enumerate(pages, 1):
+            scale = min(1.0, 860 / page.width)
+            preview = page.resize((int(page.width * scale), int(page.height * scale)))
+            tk_img = ImageTk.PhotoImage(preview)
+            preview_images.append(tk_img)
+            ttk.Label(inner, text=f"第 {page_no} 页").pack(pady=(10, 2))
+            tk.Label(inner, image=tk_img, background="white", borderwidth=1, relief="solid").pack(padx=20, pady=(0, 12))
+        win.preview_images = preview_images
+
+    def _load_print_font(self, size):
+        from PIL import ImageFont
+        font_paths = [
+            r"C:\Windows\Fonts\msyh.ttc",
+            r"C:\Windows\Fonts\msyh.ttf",
+            r"C:\Windows\Fonts\simhei.ttf",
+            r"C:\Windows\Fonts\simsun.ttc",
+            r"C:\Windows\Fonts\simsun.ttf",
+            r"C:\Windows\Fonts\Microsoft YaHei UI.ttf",
+        ]
+        for path in font_paths:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    def _text_width(self, draw, text, font):
+        try:
+            box = draw.textbbox((0, 0), str(text), font=font)
+            return box[2] - box[0]
+        except Exception:
+            return len(str(text)) * 10
+
+    def _line_height(self, draw, font):
+        try:
+            box = draw.textbbox((0, 0), "国", font=font)
+            return max(18, box[3] - box[1] + 6)
+        except Exception:
+            return 22
+
+    def _wrap_print_text(self, draw, text, font, max_width, max_lines=8):
+        text = "" if text is None else str(text)
+        max_width = max(10, max_width)
+        lines = []
+        for raw_line in text.replace("\r", "").split("\n"):
+            current = ""
+            for ch in raw_line:
+                candidate = current + ch
+                if current and self._text_width(draw, candidate, font) > max_width:
+                    lines.append(current)
+                    current = ch
+                else:
+                    current = candidate
+            lines.append(current)
+        if not lines:
+            lines = [""]
+        if max_lines and len(lines) > max_lines:
+            lines = lines[:max_lines]
+            lines[-1] = "..."
+        return lines
+
+    def _fit_print_text(self, draw, text, font, max_width):
+        text = "" if text is None else str(text)
+        if self._text_width(draw, text, font) <= max_width:
+            return text
+        ellipsis = "..."
+        available = max(0, max_width - self._text_width(draw, ellipsis, font))
+        fitted = ""
+        for ch in text:
+            candidate = fitted + ch
+            if self._text_width(draw, candidate, font) > available:
+                break
+            fitted = candidate
+        return (fitted + ellipsis) if fitted else ellipsis
+
+    def _calculate_print_widths(self, rows, columns, draw, header_font, text_font, available_width, column_labels=None):
+        count = max(len(columns), 1)
+        min_width = max(36, min(80, available_width // count // 2))
+        max_width = max(min_width, min(260, available_width // 2))
+        preferred = []
+        sample_rows = rows[:80]
+        column_labels = column_labels or columns
+        for idx, col in enumerate(columns):
+            label = column_labels[idx] if idx < len(column_labels) else col
+            width = self._text_width(draw, label, header_font) + 18
+            for row in sample_rows:
+                width = max(width, self._text_width(draw, row.get(col, ""), text_font) + 18)
+            preferred.append(max(min_width, min(width, max_width)))
+
+        total = sum(preferred)
+        if total == available_width:
+            return preferred
+        if total > available_width:
+            if min_width * count >= available_width:
+                base = max(1, available_width // count)
+                widths = [base] * count
+            else:
+                flex_total = sum(w - min_width for w in preferred) or 1
+                spare = available_width - min_width * count
+                widths = [min_width + int((w - min_width) * spare / flex_total) for w in preferred]
+        else:
+            widths = list(preferred)
+            extra = available_width - total
+            i = 0
+            while extra > 0 and any(w < max_width for w in widths):
+                if widths[i % count] < max_width:
+                    widths[i % count] += 1
+                    extra -= 1
+                i += 1
+
+        diff = available_width - sum(widths)
+        i = 0
+        while diff != 0 and widths:
+            idx = i % len(widths)
+            if diff > 0:
+                widths[idx] += 1
+                diff -= 1
+            elif widths[idx] > 1:
+                widths[idx] -= 1
+                diff += 1
+            i += 1
+            if i > 10000:
+                break
+        return widths
+
+    def _render_print_pages(self, rows, columns, print_title="数据查询打印明细", orientation="portrait", print_remark="", column_aliases=None):
+        from PIL import Image, ImageDraw
+
+        print_title = (print_title or "数据查询打印明细").strip() or "数据查询打印明细"
+        print_remark = (print_remark or "").strip()
+        column_aliases = column_aliases or {}
+        column_labels = [(column_aliases.get(col, "") or col) for col in columns]
+        if orientation == "landscape":
+            page_width, page_height = 1754, 1240
+        else:
+            page_width, page_height = 1240, 1754
+        margin = 70
+        table_width = page_width - margin * 2
+        title_font = self._load_print_font(28)
+        meta_font = self._load_print_font(16)
+        header_font = self._load_print_font(15)
+        text_font = self._load_print_font(14)
+        footer_font = self._load_print_font(13)
+        probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+        line_h = self._line_height(probe, text_font)
+        header_line_h = self._line_height(probe, header_font)
+        pad = 6
+        widths = self._calculate_print_widths(rows, columns, probe, header_font, text_font, table_width, column_labels)
+        header_lines = [
+            self._wrap_print_text(probe, label, header_font, max(10, widths[i] - pad * 2), max_lines=3)
+            for i, label in enumerate(column_labels)
+        ]
+        header_h = max(34, max(len(lines) for lines in header_lines) * header_line_h + pad * 2)
+        bottom_limit = page_height - margin
+        pages = []
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        def draw_header(draw, y):
+            x = margin
+            for idx, col in enumerate(columns):
+                width = widths[idx]
+                draw.rectangle([x, y, x + width, y + header_h], outline="black", width=1)
+                ty = y + pad
+                for line in header_lines[idx]:
+                    draw.text((x + pad, ty), line, fill="black", font=header_font)
+                    ty += header_line_h
+                x += width
+            return y + header_h
+
+        def new_page():
+            img = Image.new("RGB", (page_width, page_height), "white")
+            draw = ImageDraw.Draw(img)
+            draw.text((page_width // 2, margin - 25), print_title, fill="black", font=title_font, anchor="mm")
+            time_text = f"打印时间: {generated_at}"
+            draw.text((margin, margin + 20), time_text, fill="black", font=meta_font)
+            if print_remark:
+                remark_text = f"备注: {print_remark}"
+                max_remark_width = max(80, (page_width - margin * 2) // 2)
+                remark_text = self._fit_print_text(draw, remark_text, meta_font, max_remark_width)
+                draw.text((page_width - margin, margin + 20), remark_text, fill="black", font=meta_font, anchor="ra")
+            draw.text((margin, margin + 46), f"记录数: {len(rows)}", fill="black", font=meta_font)
+            y = draw_header(draw, margin + 82)
+            pages.append(img)
+            return img, draw, y
+
+        img, draw, y = new_page()
+        for row in rows:
+            cell_lines = []
+            row_h = 30
+            for idx, col in enumerate(columns):
+                lines = self._wrap_print_text(draw, row.get(col, ""), text_font, widths[idx] - pad * 2)
+                cell_lines.append(lines)
+                row_h = max(row_h, len(lines) * line_h + pad * 2)
+
+            if y + row_h > bottom_limit:
+                img, draw, y = new_page()
+
+            x = margin
+            for idx, lines in enumerate(cell_lines):
+                width = widths[idx]
+                draw.rectangle([x, y, x + width, y + row_h], outline="black", width=1)
+                ty = y + pad
+                for line in lines:
+                    if ty + line_h <= y + row_h:
+                        draw.text((x + pad, ty), line, fill="black", font=text_font)
+                    ty += line_h
+                x += width
+            y += row_h
+
+        total_pages = len(pages)
+        for idx, page in enumerate(pages, 1):
+            footer_draw = ImageDraw.Draw(page)
+            footer_draw.text(
+                (page_width // 2, page_height - 35),
+                f"第 {idx}/{total_pages} 页",
+                fill="black",
+                font=footer_font,
+                anchor="mm"
+            )
+        return pages
+
+    def _get_printer_names(self):
+        try:
+            import win32print
+            flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            printers = []
+            for item in win32print.EnumPrinters(flags, None, 2):
+                name = item.get("pPrinterName") if isinstance(item, dict) else item[2]
+                if name and name not in printers:
+                    printers.append(name)
+            if not printers:
+                default_printer = win32print.GetDefaultPrinter()
+                if default_printer:
+                    printers.append(default_printer)
+            return printers
+        except Exception:
+            return []
+
+    def _send_print_pages(self, pages, printer_name, document_name="数据查询打印明细"):
+        if not pages:
+            raise RuntimeError("没有可打印的页面。")
+        printer_name = (printer_name or "").strip()
+        document_name = (document_name or "数据查询打印明细").strip() or "数据查询打印明细"
+        if not printer_name:
+            raise RuntimeError("请先选择打印机。")
+        import win32print
+        import win32ui
+        import win32con
+        from PIL import ImageWin
+
+        hdc = win32ui.CreateDC()
+        started = False
+        try:
+            hdc.CreatePrinterDC(printer_name)
+            horzres = getattr(win32con, "HORZRES", 8)
+            vertres = getattr(win32con, "VERTRES", 10)
+            printable_width = hdc.GetDeviceCaps(horzres)
+            printable_height = hdc.GetDeviceCaps(vertres)
+            hdc.StartDoc(document_name)
+            started = True
+            for page in pages:
+                hdc.StartPage()
+                page = page.convert("RGB")
+                scale = min(printable_width / page.width, printable_height / page.height)
+                target_width = int(page.width * scale)
+                target_height = int(page.height * scale)
+                left = max(0, (printable_width - target_width) // 2)
+                top = max(0, (printable_height - target_height) // 2)
+                dib = ImageWin.Dib(page)
+                dib.draw(hdc.GetHandleOutput(), (left, top, left + target_width, top + target_height))
+                hdc.EndPage()
+            hdc.EndDoc()
+        except Exception:
+            if started:
+                try:
+                    hdc.AbortDoc()
+                except Exception:
+                    pass
+            raise
+        finally:
+            try:
+                hdc.DeleteDC()
+            except Exception:
+                pass
 
     def on_q(self, event=None):
         q = self.cb.get()
@@ -174,27 +724,9 @@ class DataView(ttk.Frame):
             ), reverse=True)
 
         # 重建表头
-        self.tree.delete(*self.tree.get_children())
-        self.row_items.clear()
-        self.tree["columns"] = self.columns
         self.sort_states = {c: True for c in self.columns}
-        for c in self.columns:
-            self.tree.heading(c, text=c, command=lambda c=c: self.sort_by(c))
-            self.tree.column(c, width=100, anchor="center")
-
-        # 插入数据并上色"出库状态"
-        for d in self.full:
-            vals = []
-            for c in self.columns:
-                if c == "出库记录":
-                    # 出库记录列显示"点击查询详细"
-                    vals.append("双击查询详细")
-                else:
-                    vals.append(d.get(c,""))
-            status = d.get("出库状态","")
-            tag = "outbound" if status == "卖出" else "inbound"
-            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
-            self.row_items[iid] = d
+        self._configure_tree_columns()
+        self._redraw_tree_rows(preserve_selection=False)
 
         # 重建筛选区
         self.create_filter_row()
@@ -219,26 +751,9 @@ class DataView(ttk.Frame):
             self.columns = self.all_columns
         
         # 重建表头
-        self.tree.delete(*self.tree.get_children())
-        self.row_items.clear()
-        self.tree["columns"] = self.columns
         self.sort_states = {c: True for c in self.columns}
-        for c in self.columns:
-            self.tree.heading(c, text=c, command=lambda c=c: self.sort_by(c))
-            self.tree.column(c, width=100, anchor="center")
-        
-        # 重新插入数据
-        for d in self.full:
-            vals = []
-            for c in self.columns:
-                if c == "出库记录":
-                    vals.append("双击查询详细")
-                else:
-                    vals.append(d.get(c,""))
-            status = d.get("出库状态","")
-            tag = "outbound" if status == "卖出" else "inbound"
-            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
-            self.row_items[iid] = d
+        self._configure_tree_columns()
+        self._redraw_tree_rows()
         
         # 重建筛选区
         self.create_filter_row()
@@ -248,7 +763,7 @@ class DataView(ttk.Frame):
 
     def update_current_data(self, cols, data):
         # 保留当前筛选条件，只替换数据
-        self.columns = list(cols)
+        self.all_columns = list(cols)
         self.orig = [dict(zip(cols, row)) for row in data]
         for d in self.orig:
             try:
@@ -257,26 +772,18 @@ class DataView(ttk.Frame):
             except:
                 d["利润"] = ""
         self.full = list(self.orig)
+        display_cols = self.controller.settings_model.get_display_columns('data_query')
+        if not display_cols:
+            display_cols = self.all_columns
+        self.columns = [col for col in display_cols if col in self.all_columns]
+        if not self.columns:
+            self.columns = self.all_columns
         # 默认按入库时间降序
-        if '入库时间' in self.columns:
+        if '入库时间' in self.all_columns:
             self.full.sort(key=lambda d: self._parse_datetime(
                 d.get('入库时间', '0000-01-01 00:00:00')
             ), reverse=True)
-        # 重绘行
-        self.tree.delete(*self.tree.get_children())
-        self.row_items.clear()
-        for d in self.full:
-            vals = []
-            for c in self.columns:
-                if c == "出库记录":
-                    # 出库记录列显示"点击查询详细"
-                    vals.append("点击查询详细")
-                else:
-                    vals.append(d.get(c,""))
-            status = d.get("出库状态","")
-            tag = "outbound" if status == "卖出" else "inbound"
-            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
-            self.row_items[iid] = d
+        self._configure_tree_columns()
         # 重新应用筛选条件
         self.apply_filters()
 
@@ -292,20 +799,7 @@ class DataView(ttk.Frame):
             if ok:
                 filtered.append(d)
         self.full = filtered
-        self.tree.delete(*self.tree.get_children())
-        self.row_items.clear()
-        for d in self.full:
-            vals = []
-            for c in self.columns:
-                if c == "出库记录":
-                    # 出库记录列显示"点击查询详细"
-                    vals.append("点击查询详细")
-                else:
-                    vals.append(d.get(c,""))
-            status = d.get("出库状态","")
-            tag = "outbound" if status == "卖出" else "inbound"
-            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
-            self.row_items[iid] = d
+        self._redraw_tree_rows()
         self.update_metrics()
         self.update_invoice_button_state()
 
@@ -321,20 +815,7 @@ class DataView(ttk.Frame):
         except:
             self.full.sort(key=lambda x: x.get(col,""), reverse=not asc)
         self.sort_states[col] = not asc
-        self.tree.delete(*self.tree.get_children())
-        self.row_items.clear()
-        for d in self.full:
-            vals = []
-            for c in self.columns:
-                if c == "出库记录":
-                    # 出库记录列显示"点击查询详细"
-                    vals.append("点击查询详细")
-                else:
-                    vals.append(d.get(c,""))
-            status = d.get("出库状态","")
-            tag = "outbound" if status == "卖出" else "inbound"
-            iid = self.tree.insert("", tk.END, values=vals, tags=(tag,))
-            self.row_items[iid] = d
+        self._redraw_tree_rows()
 
     def _parse_datetime(self, date_str):
         """解析多种格式的日期字符串"""
@@ -636,21 +1117,21 @@ class DataView(ttk.Frame):
         for d in self.full:
             try: commission_cost += float(d.get('佣金','0') or 0)
             except: pass
-            if d.get('出库状态') == '卖出':
-                try:
-                    sale = float(d.get('行情价格','0') or 0)
-                    cost = float(d.get('结算价','0') or 0)
-                    ship = float(d.get('快递价格','0') or 0)
-                    sold_profit   += (sale - cost - ship)
-                    shipping_cost += ship
-                    
-                    # 计算已出库且已设置结算价的总利润
-                    # 检查结算价是否已设置（不为空且大于0）
-                    if cost > 0:
-                        settled_profit += (sale - cost - ship)
-                except: pass
+            try: cost = float(d.get('结算价','0') or 0)
+            except: cost = 0.0
+            try: sale = float(d.get('行情价格','0') or 0)
+            except: sale = 0.0
+            try: ship = float(d.get('快递价格','0') or 0)
+            except: ship = 0.0
+            status = d.get('出库状态','')
+            # 卖出总利润：当前页（筛选后）数据的 行情价格-结算价-快递价格
+            sold_profit += (sale - cost - ship)
+            shipping_cost += ship
+            # 已出库已结算总利润：仅“全部出库”的商品
+            if status == '全部出库':
+                settled_profit += (sale - cost - ship)
             else:
-                try: inventory_value += float(d.get('结算价','0') or 0)
+                try: inventory_value += cost
                 except: pass
             if d.get('结算状态') == '否':
                 try: unsettled_amount += float(d.get('结算价','0') or 0)
@@ -672,7 +1153,7 @@ class DataView(ttk.Frame):
 
     def on_tree_double_click(self, event):
         """处理表格双击事件"""
-        item = self.tree.selection()[0] if self.tree.selection() else None
+        item = self.tree.identify_row(event.y)
         if not item:
             return
         
@@ -681,23 +1162,12 @@ class DataView(ttk.Frame):
         if region != "cell":
             return
         
-        column = self.tree.identify_column(event.x)
-        if not column:
-            return
-        
-        # 将列号转换为列名
-        col_index = int(column.replace('#', '')) - 1
-        if col_index < 0 or col_index >= len(self.columns):
-            return
-        
-        col_name = self.columns[col_index]
+        col_name = self._identify_tree_column_name(event.x)
         
         # 只有点击出库记录列才弹出详细窗口
         if col_name == "出库记录":
-            # 获取当前行的数据
-            row_index = self.tree.index(item)
-            if row_index < len(self.full):
-                record_data = self.full[row_index]
+            record_data = self.row_items.get(item)
+            if record_data:
                 self.show_outbound_details(record_data)
     
     def show_outbound_details(self, record_data):
